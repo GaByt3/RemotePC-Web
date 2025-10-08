@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>RemotePC Web</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Reset básico */
+* { box-sizing: border-box; margin:0; padding:0; }
+
+body {
+    font-family: 'Inter', sans-serif;
+    background: linear-gradient(135deg, #1e1e1e 0%, #2c2c2c 100%);
+    color: #f0f0f0;
+    padding: 20px 0 20px 0; /* Sem padding lateral: conteúdo vai da borda esquerda à direita */
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-height: 100vh;
+}
+
+/* Header */
+header {
+    width: 100%; /* Ocupa toda a largura disponível, sem max-width para expansão total */
+    padding: 15px 20px;
+    background: rgba(44, 44, 44, 0.8);
+    backdrop-filter: blur(10px);
+    text-align: center;
+    font-size: 1.4em;
+    font-weight: 600;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    margin-bottom: 20px;
+}
+#monitor-label { color: #4ade80; font-weight:600; }
+
+/* Layout principal */
+#main-container {
+    display: flex;
+    gap: 20px;
+    width: 100%; /* Usa 100% da largura, sem max-width para expansão total */
+    margin: 0; /* Sem margens laterais */
+}
+#screen-wrapper { 
+    flex: 1; /* A tela ocupa todo o espaço restante disponível */
+    display: flex; 
+    flex-direction: column; 
+    gap: 15px; 
+    min-width: 0;
+}
+#controls-wrapper { 
+    flex: 0 0 350px; /* Largura fixa de 350px para os controles (não encolhe nem expande), encostando na borda direita */
+    display: flex; 
+    flex-direction: column; 
+    gap: 15px; 
+}
+
+/* Tela do monitor */
+#screen-container {
+    width: 99%;
+    border: 2px solid #4a4a4a;
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: crosshair;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+#screen { width: 100%; display: block; object-fit: contain; }
+
+/* Botões de monitor */
+#monitor-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+}
+#monitor-buttons button {
+    padding: 10px 16px;
+    background: linear-gradient(135deg,#3a3a3a 0%,#4a4a4a 100%);
+    border: none;
+    border-radius: 8px;
+    color: #f0f0f0;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+}
+#monitor-buttons button:hover {
+    background: linear-gradient(135deg,#575757 0%,#6a6a6a 100%);
+    transform: translateY(-2px);
+}
+
+/* QR Box */
+#qr-box {
+    text-align: center;
+    padding: 15px;
+    background: rgba(44,44,44,0.6);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+}
+#qr-box img { max-width: 200px; border-radius: 8px; margin-top: 10px; }
+
+/* Controls */
+.control-group {
+    background: rgba(44,44,44,0.6);
+    padding:15px;
+    border-radius:12px;
+    box-shadow:0 4px 20px rgba(0,0,0,0.2);
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+.control-group label { font-weight:600; margin-bottom:5px; }
+select, input, textarea {
+    width:100%;
+    padding:10px;
+    border-radius:8px;
+    border:1px solid #6b7280;
+    background:#2c2c2c;
+    color:#f0f0f0;
+}
+textarea { height:100px; resize:vertical; font-family:inherit; }
+button { padding:10px; border:none; border-radius:8px; cursor:pointer; background: linear-gradient(135deg,#3a3a3a 0%,#4a4a4a 100%); color:#f0f0f0; transition:all 0.3s; font-weight:500; }
+button:hover { background: linear-gradient(135deg,#575757 0%,#6a6a6a 100%); transform:translateY(-1px); }
+
+.button-grid {
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px,1fr));
+    gap:10px;
+}
+
+#mouse-buttons { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+#combo-section { display:flex; gap:10px; flex-wrap:wrap; }
+
+#cmd-output {
+    background:#1e1e1e;
+    color:#f0f0f0;
+    padding:10px;
+    border-radius:8px;
+    height:150px;
+    overflow:auto;
+    white-space:pre-wrap;
+    border:1px solid #6b7280;
+    font-family:'Courier New',monospace;
+    font-size:0.9em;
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+    body { padding: 20px; } /* Restaura padding lateral em telas pequenas para evitar colar nas bordas */
+    #main-container { 
+        flex-direction: column; 
+        width: 100%; 
+    }
+    #screen-wrapper { 
+        flex: none; 
+        width: 100%; 
+    }
+    #controls-wrapper { 
+        flex: none; 
+        width: 100%; 
+        max-width: none; /* Remove a largura fixa em mobile */
+    }
+}
+</style>
+</head>
+<body>
+
+<header>
+    Current monitor: <span id="monitor-label">{{ current_monitor }}</span>
+</header>
+
+<div id="main-container">
+
+    <!-- Lado esquerdo: botões monitor + tela + QR -->
+    <div id="screen-wrapper">
+        <div id="monitor-buttons">
+            {% for i in range(1, monitor_count + 1) %}
+                <button onclick="setMonitor({{ i }})">Monitor {{ i }}</button>
+            {% endfor %}
+        </div>
+
+        <div id="screen-container">
+            <img id="screen" />
+        </div>
+
+        <div id="qr-box">
+            {% if session_active and request.remote_addr not in authorized_ips %}
+                <p style="color:#f88;">A session is already active — only one device can connect</p>
+            {% elif token_valid and not session_active and request.remote_addr not in authorized_ips %}
+                <p>Scan the QR code to connect (single-use token)</p>
+                <p style="font-size:0.9em; color:#bbb;">Or click the QR to connect directly (desktop)</p>
+                <img src="{{ qr_data_uri }}" alt="QR Code" onclick="window.location.href='{{ connect_url }}'" style="cursor: pointer; max-width: 200px; border-radius: 8px; margin-top: 10px;" />
+                <p style="font-size:0.8em; color:#bbb;">(token preview: {{ token_preview }})</p>
+            {% elif session_active %}
+                <p style="color:#8f8;">>Session active — control in progress</p>
+            {% else %}
+                <p style="color:#f88;">Token already used. Restart the program to generate another</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Lado direito: controles -->
+    <div id="controls-wrapper">
+        <div class="control-group">
+            <label for="mode-select">Keyboard mode:</label>
+            <select id="mode-select">
+                <option value="text">Text</option>
+                <option value="cmd">CMD command</option>
+            </select>
+            <textarea id="input-area" placeholder="Type here..."></textarea>
+            <button id="send-btn">Send</button>
+            <pre id="cmd-output" style="display:none;"></pre>
+        </div>
+
+        <div class="control-group">
+            <label>Special keys:</label>
+            <div class="button-grid" id="special-keys-buttons">
+                <button onclick="sendKeys(['ctrl'])">Ctrl</button>
+                <button onclick="sendKeys(['shift'])">Shift</button>
+                <button onclick="sendKeys(['alt'])">Alt</button>
+                <button onclick="sendKeys(['up'])">↑</button>
+                <button onclick="sendKeys(['down'])">↓</button>
+                <button onclick="sendKeys(['left'])">←</button>
+                <button onclick="sendKeys(['right'])">→</button>
+                <button onclick="sendKeys(['enter'])">Enter</button>
+                <button onclick="sendKeys(['backspace'])">Backspace</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Mouse controls:</label>
+            <div id="mouse-buttons">
+                <button onclick="sendClick('left')">Left Click</button>
+                <button onclick="sendClick('right')">Right Click</button>
+                <button onclick="sendClick('middle')">Middle Click</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Key combinations:</label>
+            <div id="combo-section">
+                <input id="combo-input" placeholder="Ex: ctrl+c or win+r " />
+                <button onclick="sendCombo()">Send</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// Conexão Socket.IO
+const tokenFromUrl = new URLSearchParams(window.location.search).get('token');
+const socket = tokenFromUrl ? io({ query: { token: tokenFromUrl } }) : io();
+const screenImg = document.getElementById("screen");
+
+socket.on('connect', () => console.log("Socket conectado (sid):", socket.id));
+socket.on('connect_error', (err) => console.warn("Erro na conexão Socket.IO:", err));
+socket.on('frame', data => screenImg.src = 'data:image/jpeg;base64,' + data);
+
+// Esconde QR quando sessão inicia
+socket.on('session_started', () => {
+    const qrBox = document.getElementById('qr-box');
+    if (qrBox) qrBox.style.display='none';
+});
+
+// Monitor
+function setMonitor(monitor) {
+    fetch("/set_monitor", {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({monitor})})
+    .then(()=>document.getElementById("monitor-label").innerText=monitor);
+}
+
+// Cliques
+screenImg.addEventListener("click", e=>{
+    const rect=screenImg.getBoundingClientRect();
+    fetch("/click", {method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify({x:e.clientX-rect.left, y:e.clientY-rect.top, width:rect.width, height:rect.height, button:'left'})});
+});
+function sendClick(buttonType){
+    const rect=screenImg.getBoundingClientRect();
+    fetch("/click", {method:"POST", headers:{'Content-Type':'application/json'}, body:JSON.stringify({x:rect.width/2, y:rect.height/2, width:rect.width, height:rect.height, button:buttonType})});
+}
+
+// Teclado
+function sendKeys(keys){
+    fetch("/type_key",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({keys})})
+    .then(res=>res.json()).then(data=>{if(!data.success) alert('Erro: '+(data.error||''));});
+}
+function sendCombo(){
+    const input=document.getElementById('combo-input').value.trim().toLowerCase();
+    if(!input) return;
+    sendKeys(input.split(/[\+\s]/).map(k=>k.trim()));
+    document.getElementById('combo-input').value='';
+}
+
+// Texto / CMD
+const modeSelect = document.getElementById('mode-select');
+const inputArea = document.getElementById('input-area');
+const sendBtn = document.getElementById('send-btn');
+const cmdOutput = document.getElementById('cmd-output');
+
+sendBtn.onclick=()=>{
+    const value=inputArea.value.trim();
+    if(!value) return;
+    if(modeSelect.value==='text'){
+        fetch('/type_text',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:value,enter:true})})
+        .then(res=>res.json()).then(data=>{if(data.success) inputArea.value=''; else alert('Erro: '+(data.error||''))});
+        cmdOutput.style.display='none';
+    } else {
+        fetch('/cmd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:value})})
+        .then(res=>res.json()).then(data=>{
+            cmdOutput.textContent=data.success?data.output:'Erro: '+data.output;
+            cmdOutput.style.display='block';
+        });
+    }
+};
+</script>
+
+</body>
+</html>
